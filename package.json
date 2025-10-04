@@ -1,0 +1,21 @@
+{
+  "name": "jarvis",
+  "version": "1.0.0",
+  "description": "Jarvis 1.0 local voice assistant",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "lint": "echo 'No lint configured'"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "electron": "^28.2.0",
+    "node-record-lpcm16": "^1.0.1",
+    "openai": "^4.38.0",
+    "wav": "^1.0.2",
+    "ws": "^8.15.1",
+    "yaml": "^2.3.4",
+    "open": "^9.1.0"
+  }
+}

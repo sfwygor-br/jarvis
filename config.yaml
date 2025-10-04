@@ -1,0 +1,21 @@
+audio:
+  save_path: "./recordings"
+  format: "wav"
+  sample_rate: 16000
+  channels: 1
+  max_record_time: 30
+
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  api_key: "ENV"
+
+conversation:
+  wait_after_speech: 5
+  max_pause: 5
+  wake_word: "hey orion"
+
+output:
+  tts: true
+  visual: true
+  logs: true
