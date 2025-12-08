@@ -1,11 +1,5 @@
-const readline = require('readline');
-let open;
-
-try {
-  open = require('open');
-} catch (error) {
-  console.warn('open package not available. Visual extras will be logged only.', error.message);
-}
+import readline from "readline";
+import open from "open";
 
 class VisualClient {
   constructor(outputConfig = {}) {
@@ -23,29 +17,17 @@ class VisualClient {
   }
 
   async confirmAndOpen(extras = []) {
-    if (!this.enabled || !extras.length) {
-      return false;
-    }
+    if (!this.enabled || !extras.length) return false;
+    console.log("Jarvis found visual extras:");
+    extras.forEach((e, i) => console.log(`${i + 1}. ${e.title || "Item"} -> ${e.url || "N/A"}`));
 
-    console.log('Jarvis found visual extras:');
-    extras.forEach((extra, index) => {
-      console.log(`${index + 1}. ${extra.title || extra.type || 'Item'} -> ${extra.url || 'N/A'}`);
-    });
-
-    const answer = await this.prompt('Open these items in your browser? (y/N) ');
-    const shouldOpen = answer === 'y' || answer === 'yes';
-
-    if (shouldOpen && open) {
-      for (const extra of extras) {
-        if (extra.url) {
-          await open(extra.url);
-        }
-      }
+    const answer = await this.prompt("Open in browser? (y/N) ");
+    if ((answer === "y" || answer === "yes") && open) {
+      for (const e of extras) if (e.url) await open(e.url);
       return true;
     }
-
-    return shouldOpen;
+    return false;
   }
 }
 
-module.exports = VisualClient;
+export default VisualClient;

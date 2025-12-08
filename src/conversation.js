@@ -1,113 +1,82 @@
-const fs = require('fs');
-const { EventEmitter } = require('events');
-let OpenAI;
+import fs from "fs";
+import EventEmitter from "events";
+import { pipeline } from "@xenova/transformers";
+import wav from "node-wav";
 
-try {
-  OpenAI = require('openai');
-} catch (error) {
-  console.warn('openai package not available for transcription.', error.message);
-}
-
-class ConversationManager extends EventEmitter {
+export default class ConversationManager extends EventEmitter {
   constructor(config = {}) {
     super();
     this.config = config;
+    this.model = config.model || "Xenova/whisper-tiny.en";
+    this.transcriber = null;
     this.segments = [];
-    this.timer = null;
-    this.openai = null;
+    this.context = {};
+  }
 
-    if (OpenAI && process.env.OPENAI_API_KEY) {
-      this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  async init() {
+    if (!this.transcriber) {
+      console.log(`⏳ Carregando modelo Whisper: ${this.model}`);
+
+      const keyStatus = process.env.HUGGINGFACE_ACCESS_TOKEN
+        ? "✔️ Detectada"
+        : "⚠️ Não encontrada (usando acesso público)";
+      console.log(`🔑 Token HuggingFace: ${keyStatus}`);
+
+      this.transcriber = await pipeline("automatic-speech-recognition", this.model, {
+        revision: "main",
+        use_auth_token: process.env.HUGGINGFACE_ACCESS_TOKEN,
+      });
+
+      console.log(`✅ Modelo ${this.model} carregado com sucesso.`);
     }
   }
 
   async transcribe(filePath) {
-    if (!this.openai) {
-      console.warn('Transcription skipped: OpenAI client not configured.');
-      return '';
-    }
-
     try {
-      const response = await this.openai.audio.transcriptions.create({
-        file: fs.createReadStream(filePath),
-        model: 'whisper-1',
+      await this.init();
+
+      console.log(`🎤 Lendo arquivo de áudio: ${filePath}`);
+      const buffer = fs.readFileSync(filePath);
+      const decoded = wav.decode(buffer);
+
+      if (!decoded.channelData || !decoded.channelData[0]) {
+        console.warn("⚠️ Nenhum canal de áudio detectado. Abortando transcrição.");
+        return "";
+      }
+
+      // Transcrição via Float32Array
+      const audioData = decoded.channelData[0]; // Float32Array do canal principal
+
+      console.log("🎧 Transcrevendo...");
+      const result = await this.transcriber(audioData, {
+        sampling_rate: decoded.sampleRate,
       });
-      return response.text?.trim() || '';
+
+      const text = result.text || result[0]?.text || "";
+      console.log("📝 Transcrição:", text);
+
+      return text;
     } catch (error) {
-      console.error('Failed to transcribe audio', error);
-      return '';
+      console.error("❌ Erro ao transcrever:", error.message);
+      return "";
     }
   }
 
   async addSegment(segment) {
-    if (!segment) return;
+    this.segments.push(segment);
 
-    if (this.segments.length) {
-      const lastSegment = this.segments[this.segments.length - 1];
-      const lastEnd = new Date(lastSegment.endedAt);
-      const currentStart = new Date(segment.startedAt);
-      const gapSeconds = (currentStart.getTime() - lastEnd.getTime()) / 1000;
-      if (this.config.max_pause && gapSeconds > this.config.max_pause) {
-        await this.finalize();
-      }
+    if (this.segments.length > 0) {
+      const transcript = this.segments.map((s) => s.transcript).join(" ");
+      this.emit("conversationFinalized", {
+        transcript,
+        context: this.context,
+        metadata: { totalSegments: this.segments.length },
+      });
     }
-
-    this.segments.push({ ...segment });
-    this.scheduleFinalize();
-  }
-
-  scheduleFinalize() {
-    if (this.timer) {
-      clearTimeout(this.timer);
-    }
-
-    const delay = (this.config.wait_after_speech || 5) * 1000;
-    this.timer = setTimeout(() => {
-      this.finalize().catch((error) => console.error('Failed to finalize conversation', error));
-    }, delay);
-  }
-
-  async finalize() {
-    if (!this.segments.length) {
-      return;
-    }
-
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-
-    const transcript = this.segments
-      .map((segment) => segment.transcript || '')
-      .filter(Boolean)
-      .join(' ')
-      .trim();
-
-    const metadata = {
-      segments: this.segments,
-      createdAt: new Date().toISOString(),
-    };
-
-    const context = {
-      segments: this.segments,
-    };
-
-    this.emit('conversationFinalized', {
-      transcript,
-      metadata,
-      context,
-    });
-
-    this.segments = [];
   }
 
   reset() {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
     this.segments = [];
+    this.context = {};
   }
 }
-
-module.exports = ConversationManager;

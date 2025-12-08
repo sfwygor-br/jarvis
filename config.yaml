@@ -1,21 +1,27 @@
+
+
+llm:
+  provider: "ollama"
+  model: "gemma3:4b"
+  api_key: "ENV"
+
 audio:
   save_path: "./recordings"
   format: "wav"
   sample_rate: 16000
   channels: 1
   max_record_time: 30
-
-llm:
-  provider: "openai"
-  model: "gpt-4o-mini"
-  api_key: "ENV"
+  silence_threshold: "0.1%"   # <= entre 0.5% e 2% é o ideal
 
 conversation:
+  model: "Xenova/whisper-tiny.en"
+  max_pause: 2.5
   wait_after_speech: 5
-  max_pause: 5
-  wake_word: "hey orion"
+  wake_word: "hello"
+
+
 
 output:
-  tts: true
+  tts: false
   visual: true
   logs: true

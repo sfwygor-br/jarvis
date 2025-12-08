@@ -1,99 +1,70 @@
-let OpenAI;
-
-try {
-  OpenAI = require('openai');
-} catch (error) {
-  console.warn('openai package not available. LLM responses will be mocked.', error.message);
-}
+import axios from "axios";
+import OpenAI from "openai";
 
 class LLMClient {
   constructor(config = {}) {
     this.config = config;
-    this.provider = config.provider || 'openai';
-    this.model = config.model || 'gpt-4o-mini';
+    this.provider = config.provider || "ollama";
+    this.model = config.model || "gemma3:4b";
     this.client = null;
 
-    if (this.provider === 'openai' && OpenAI && process.env.OPENAI_API_KEY) {
+    if (this.provider === "openai" && process.env.OPENAI_API_KEY) {
       this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     }
   }
 
   async generateResponse(prompt, context = {}) {
     if (!prompt) {
-      return {
-        speech: 'I did not catch that. Could you please repeat?',
-        extras: [],
-      };
+      return { speech: "I did not catch that.", extras: [] };
     }
+    if (this.provider === "ollama") return await this.queryOllama(prompt, context);
+    if (this.provider === "openai" && this.client) return await this.queryOpenAI(prompt, context);
+    return { speech: "LLM client not configured.", extras: [] };
+  }
 
-    if (!this.client) {
-      console.warn('LLM client not configured. Returning mock response.');
-      return {
-        speech: 'I am offline at the moment, but I logged your request.',
-        extras: [],
-      };
+  async queryOllama(prompt, context = {}) {
+    try {
+      const systemPrompt = `You are Jarvis. Always respond in JSON {speech, extras}.`;
+      const res = await axios.post("http://localhost:11434/api/generate", {
+        model: this.model,
+        prompt: `${systemPrompt}\nUser transcript: ${prompt}\nContext: ${JSON.stringify(context)}`,
+        stream: false,
+      });
+      const raw = res.data.response;
+      const parsed = this.safeJsonParse(raw);
+      return parsed || { speech: raw, extras: [] };
+    } catch (error) {
+      console.error("Ollama request failed", error.message);
+      return { speech: "Error while generating response.", extras: [] };
     }
+  }
 
-    const systemPrompt = `You are Jarvis, a concise voice assistant. Always respond in JSON with keys "speech" (string) and "extras" (array of objects describing optional visual items). The speech must be a short spoken summary. Extras should include title and url when relevant.`;
-
+  async queryOpenAI(prompt, context = {}) {
     try {
       const completion = await this.client.chat.completions.create({
         model: this.model,
         messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: `User transcript: ${prompt}\nContext: ${JSON.stringify(context)}`,
-          },
+          { role: "system", content: "You are Jarvis. Reply JSON {speech, extras}" },
+          { role: "user", content: `User transcript: ${prompt}\nContext: ${JSON.stringify(context)}` },
         ],
-        temperature: 0.7,
       });
-
       const raw = completion.choices?.[0]?.message?.content;
-      if (!raw) {
-        throw new Error('No content returned from LLM');
-      }
-
-      const parsed = this.safeJsonParse(raw);
-      if (parsed) {
-        return {
-          speech: parsed.speech || '',
-          extras: Array.isArray(parsed.extras) ? parsed.extras : [],
-        };
-      }
-
-      return {
-        speech: raw,
-        extras: [],
-      };
+      return this.safeJsonParse(raw) || { speech: raw, extras: [] };
     } catch (error) {
-      console.error('LLM request failed', error);
-      return {
-        speech: 'I encountered an error while generating a response.',
-        extras: [],
-      };
+      console.error("OpenAI request failed", error.message);
+      return { speech: "Error with OpenAI", extras: [] };
     }
   }
 
   safeJsonParse(value) {
     if (!value) return null;
-    try {
-      return JSON.parse(value);
-    } catch (error) {
-      // Sometimes the model responds with fenced code blocks
-      const trimmed = value.trim();
-      const match = trimmed.match(/```json([\s\S]*?)```/i);
-      if (match) {
-        try {
-          return JSON.parse(match[1]);
-        } catch (innerError) {
-          console.error('Failed to parse fenced JSON', innerError);
-        }
-      }
-      console.warn('Could not parse JSON response from LLM.');
+    try { return JSON.parse(value); }
+    catch {
+      const match = value.trim().match(/```json([\s\S]*?)```/i);
+      if (match) try { return JSON.parse(match[1]); } catch {}
       return null;
     }
   }
 }
 
-module.exports = LLMClient;
+export default LLMClient;

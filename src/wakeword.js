@@ -1,10 +1,10 @@
-const { EventEmitter } = require('events');
-const readline = require('readline');
+import readline from "readline";
+import { EventEmitter } from "events";
 
 class WakeWordDetector extends EventEmitter {
   constructor(config = {}) {
     super();
-    this.wakeWord = (config.wake_word || config.wakeWord || 'hey orion').toLowerCase();
+    this.wakeWord = (config.wake_word || "hello").toLowerCase();
     this.active = false;
     this.rl = null;
   }
@@ -19,24 +19,17 @@ class WakeWordDetector extends EventEmitter {
     });
 
     this.rl.prompt();
-    this.rl.on('line', (line) => {
-      const normalized = line.trim().toLowerCase();
-      if (normalized === this.wakeWord) {
-        this.emit('wake');
-      } else {
-        console.log('Wake word not detected. Try again.');
-      }
+    this.rl.on("line", (line) => {
+      if (line.trim().toLowerCase() === this.wakeWord) this.emit("wake");
+      else console.log("Wake word not detected. Try again.");
       this.rl.prompt();
     });
   }
 
   stop() {
     this.active = false;
-    if (this.rl) {
-      this.rl.close();
-      this.rl = null;
-    }
+    if (this.rl) { this.rl.close(); this.rl = null; }
   }
 }
 
-module.exports = WakeWordDetector;
+export default WakeWordDetector;

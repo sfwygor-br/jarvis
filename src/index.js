@@ -1,29 +1,29 @@
-const fs = require('fs');
-const path = require('path');
-const yaml = require('yaml');
+import fs from "fs";
+import path from "path";
+import yaml from "yaml";
 
-const WakeWordDetector = require('./wakeword');
-const Recorder = require('./recorder');
-const ConversationManager = require('./conversation');
-const LLMClient = require('./llm');
-const TTSClient = require('./tts');
-const VisualClient = require('./visual');
-const MemoryClient = require('./memory');
+import WakeWordDetector from "./wakeword.js";
+import Recorder from "./recorder.js";
+import ConversationManager from "./conversation.js";
+import LLMClient from "./llm.js";
+import TTSClient from "./tts.js";
+import VisualClient from "./visual.js";
+import MemoryClient from "./memory.js";
 
 function loadConfig() {
-  const configPath = path.resolve(process.cwd(), 'config.yaml');
+  const configPath = path.resolve(process.cwd(), "../config.yaml");
   if (!fs.existsSync(configPath)) {
     throw new Error(`Configuration file not found at ${configPath}`);
   }
-  const raw = fs.readFileSync(configPath, 'utf8');
+  const raw = fs.readFileSync(configPath, "utf8");
   return yaml.parse(raw);
 }
 
 async function main() {
   const config = loadConfig();
 
-  if (!process.env.OPENAI_API_KEY && config.llm?.api_key === 'ENV') {
-    console.warn('OPENAI_API_KEY environment variable is not set. Some features may be disabled.');
+  if (!process.env.OPENAI_API_KEY && config.llm?.api_key === "ENV") {
+    console.warn("⚠️ OPENAI_API_KEY environment variable is not set.");
   }
 
   const wakeDetector = new WakeWordDetector(config.conversation);
@@ -34,67 +34,97 @@ async function main() {
   const visual = new VisualClient(config.output);
   const memory = new MemoryClient(config.output);
 
-  wakeDetector.on('wake', () => {
-    console.log('Wake word detected. Starting recording...');
+  // 💤 Quando a palavra de ativação for detectada, começa a gravação
+  wakeDetector.on("wake", () => {
+    console.log("🟢 Wake word detectada. Iniciando gravação...");
     recorder.start();
   });
 
-  recorder.on('recordingStopped', async (payload) => {
+  // 🎙️ Quando a gravação for finalizada (por silêncio, tempo máximo, etc)
+  recorder.on("recordingStopped", async (payload) => {
     try {
+      if (!fs.existsSync(payload.filePath)) {
+        console.warn("⚠️ Arquivo de áudio não encontrado:", payload.filePath);
+        return;
+      }
+
       await memory.registerRecording(payload);
+      console.log(`🧠 Gravando arquivo de áudio: ${payload.filePath}`);
+
+      // 🗣️ Transcrever o áudio
       const transcript = await conversation.transcribe(payload.filePath);
+      if (!transcript || !transcript.trim()) {
+        console.log("🤷 Nenhuma fala detectada. Retornando ao modo de escuta...");
+        wakeDetector.start();
+        return;
+      }
+
       await conversation.addSegment({
         filePath: payload.filePath,
         transcript,
         startedAt: payload.startedAt,
         endedAt: payload.endedAt,
       });
+
     } catch (error) {
-      console.error('Error processing recording', error);
+      console.error("❌ Erro ao processar a gravação:", error);
+      wakeDetector.start(); // reativa modo escuta mesmo se falhar
     }
   });
 
-  conversation.on('conversationFinalized', async (data) => {
-    console.log('Conversation finalized. Sending to LLM...');
+  // 💬 Quando a conversa estiver completa (transcrição finalizada)
+  conversation.on("conversationFinalized", async (data) => {
+    console.log("💭 Enviando transcrição para o LLM...");
     try {
       const response = await llm.generateResponse(data.transcript, data.context);
+
+      // 🔊 Resposta por voz
       if (config.output?.tts) {
         await tts.speak(response.speech, data);
       }
 
+      // 🖼️ Extras visuais (ex: abrir imagem ou link)
       if (config.output?.visual && response.extras?.length) {
         const shouldOpen = await visual.confirmAndOpen(response.extras);
-        if (!shouldOpen) {
-          console.log('User declined to open visual extras.');
-        }
+        if (!shouldOpen) console.log("🟡 Usuário recusou abrir extras visuais.");
       }
 
+      // 🧾 Registrar histórico
       if (config.output?.logs) {
         await memory.registerConversation({
-          userInput: data.transcript,
-          assistantResponse: response.speech,
+          user_input: data.transcript,
+          assistant_response: response.speech,
           extras: response.extras,
           metadata: data.metadata,
         });
       }
+
+      // 💤 Reativar modo de escuta após finalizar
+      console.log("💤 Retornando ao modo de escuta...");
+      wakeDetector.start();
+
     } catch (error) {
-      console.error('Failed to generate response', error);
+      console.error("❌ Falha ao gerar resposta LLM:", error);
+      wakeDetector.start(); // volta a escutar mesmo se der erro
     }
   });
 
-  process.on('SIGINT', () => {
-    console.log('Shutting down Jarvis 1.0...');
+  // 🧹 Encerramento limpo
+  process.on("SIGINT", () => {
+    console.log("\n🛑 Encerrando Jarvis...");
     recorder.stop();
     wakeDetector.stop();
     conversation.reset();
     process.exit(0);
   });
 
+  // 🚀 Inicialização do sistema
+  console.log("⚙️ Iniciando Jarvis...");
   await memory.bootstrap();
   wakeDetector.start();
 }
 
 main().catch((error) => {
-  console.error('Jarvis failed to start:', error);
+  console.error("🚨 Falha ao iniciar o Jarvis:", error);
   process.exit(1);
 });
